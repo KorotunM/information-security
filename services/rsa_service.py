@@ -8,13 +8,12 @@ from random import Random
 from models.crypto_models import RSAKeyPair, RSACipherPayload
 from utils.number_theory import choose_coprime, generate_prime, is_probable_prime, mod_inverse
 from utils.text_codec import (
-    format_rsa_payload,
-    parse_rsa_payload,
-    rsa_blocks_to_text,
-    text_to_rsa_blocks,
+    AlphabetCodec,
+    FIXED_INPUT_ALPHABET,
+    format_length_prefixed_payload,
     validate_fixed_alphabet_text,
 )
-from utils.validation import InputValidationError
+from utils.validation import InputValidationError, parse_length_prefixed_numbers
 
 
 class RSAService:
@@ -72,21 +71,25 @@ class RSAService:
         return key_pair, f"Автогенерация простых чисел ({bit_length} бит).\n{steps}"
 
     def encrypt_text(self, text: str, key_pair: RSAKeyPair) -> RSACipherPayload:
-        """Шифрует текст блоками RSA."""
+        """Шифрует текст в кодировке Q = {0..26}."""
 
         normalized_text = validate_fixed_alphabet_text(text, "Открытый текст")
+        codec = AlphabetCodec(FIXED_INPUT_ALPHABET)
+        plain_values = codec.text_to_indices(normalized_text)
+        if key_pair.n <= len(FIXED_INPUT_ALPHABET):
+            raise InputValidationError("Модуль RSA слишком мал для кодирования символов множества Q.")
 
-        block_data = text_to_rsa_blocks(normalized_text, key_pair.n)
-        cipher_blocks = [pow(block, key_pair.e, key_pair.n) for block in block_data.integers]
-        encoded = format_rsa_payload(block_data.lengths, cipher_blocks)
+        cipher_blocks = [pow(value, key_pair.e, key_pair.n) for value in plain_values]
+        encoded = format_length_prefixed_payload(len(plain_values), cipher_blocks)
 
         lines = [
             "Шифрование RSA:",
-            f"Размер блока по модулю n: {block_data.block_size} байт(а).",
-            f"Блоки открытого текста: {block_data.integers}",
+            "Кодирование символов:",
+            "a→0, b→1, c→2, ..., z→25, пробел→26",
+            f"Числовые эквиваленты сообщения Q: {plain_values}",
         ]
         for index, (plain, cipher) in enumerate(
-            zip(block_data.integers, cipher_blocks, strict=True),
+            zip(plain_values, cipher_blocks, strict=True),
             start=1,
         ):
             lines.append(
@@ -94,8 +97,8 @@ class RSAService:
             )
         return RSACipherPayload(
             blocks=cipher_blocks,
-            block_lengths=block_data.lengths,
-            block_size=block_data.block_size,
+            block_lengths=[1] * len(cipher_blocks),
+            block_size=1,
             encoded=encoded,
             steps="\n".join(lines),
         )
@@ -103,19 +106,21 @@ class RSAService:
     def decrypt_text(self, payload: str, key_pair: RSAKeyPair) -> tuple[str, str]:
         """Расшифровывает строку RSA-шифртекста."""
 
-        lengths, blocks = parse_rsa_payload(payload)
-        plain_blocks = [pow(block, key_pair.d, key_pair.n) for block in blocks]
-        text = rsa_blocks_to_text(plain_blocks, lengths)
-        validate_fixed_alphabet_text(text, "Расшифрованный текст")
+        parsed = parse_length_prefixed_numbers(payload, "Шифртекст")
+        plain_values = [pow(block, key_pair.d, key_pair.n) for block in parsed.values]
+        trimmed_values = plain_values[: parsed.length]
+        codec = AlphabetCodec(FIXED_INPUT_ALPHABET)
+        text = codec.indices_to_text(trimmed_values)
 
         lines = [
             "Расшифрование RSA:",
-            f"Принятые блоки шифртекста: {blocks}",
+            f"Принятые блоки шифртекста: {parsed.values}",
         ]
-        for index, (cipher, plain) in enumerate(zip(blocks, plain_blocks, strict=True), start=1):
+        for index, (cipher, plain) in enumerate(zip(parsed.values, plain_values, strict=True), start=1):
             lines.append(
                 f"Блок {index}: m = c^d mod n = {cipher}^{key_pair.d} mod {key_pair.n} = {plain}"
             )
+        lines.append(f"Восстановленные числовые эквиваленты Q: {trimmed_values}")
         lines.append(f"Восстановленный текст: {text}")
         return text, "\n".join(lines)
 

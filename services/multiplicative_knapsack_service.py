@@ -25,7 +25,7 @@ from utils.validation import InputValidationError, parse_length_prefixed_numbers
 class MultiplicativeKnapsackService:
     """Сервис для классического и обобщённого мультипликативного рюкзака."""
 
-    MAX_EDUCATIONAL_PRODUCT = 10_000_000
+    MAX_EDUCATIONAL_PRODUCT = 100_000_000
 
     def generate_keys(
         self,
@@ -186,8 +186,8 @@ class MultiplicativeKnapsackService:
     def validate_private_primes(self, values: list[int]) -> None:
         """Проверяет корректность приватного множества."""
 
-        if len(values) < 2:
-            raise InputValidationError("Нужно не меньше двух приватных множителей.")
+        if len(values) < 1:
+            raise InputValidationError("Нужен хотя бы один приватный множитель.")
         if any(value <= 1 for value in values):
             raise InputValidationError("Все приватные множители должны быть больше 1.")
         if len(set(values)) != len(values):

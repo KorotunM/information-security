@@ -60,11 +60,11 @@ class GeneralizedMultiplicativeScreen(ScrollScreen):
         form.setSpacing(10)
 
         self.length_spin = QSpinBox()
-        self.length_spin.setRange(4, 10)
-        self.length_spin.setValue(4)
+        self.length_spin.setRange(1, 10)
+        self.length_spin.setValue(1)
         self.base_spin = QSpinBox()
-        self.base_spin.setRange(2, 6)
-        self.base_spin.setValue(3)
+        self.base_spin.setRange(27, 27)
+        self.base_spin.setValue(27)
 
         self.alphabet_edit = QLineEdit(FIXED_INPUT_ALPHABET)
         self.alphabet_edit.setReadOnly(True)
@@ -83,7 +83,7 @@ class GeneralizedMultiplicativeScreen(ScrollScreen):
         self.numeric_view = create_multiline_output(read_only=True)
 
         form.addRow("Число множителей n:", self.length_spin)
-        form.addRow("Основание B:", self.base_spin)
+        form.addRow("Мощность множества Q:", self.base_spin)
         form.addRow("Алфавит:", self.alphabet_edit)
         form.addRow("Приватные множители:", self.private_edit)
         form.addRow("Модуль q:", self.modulus_edit)
@@ -176,8 +176,7 @@ class GeneralizedMultiplicativeScreen(ScrollScreen):
         )
         self.ciphertext_edit.setPlainText(encoded)
         self.numeric_view.setPlainText(
-            "Символы кодируются индексами выбранного алфавита и цифрами по основанию B; "
-            "далее эти цифры становятся показателями степеней приватных множителей."
+            "Прямое кодирование: a→0, b→1, ..., z→25, пробел→26."
         )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
@@ -194,8 +193,8 @@ class GeneralizedMultiplicativeScreen(ScrollScreen):
         self.set_steps(steps)
 
     def clear_form(self) -> None:
-        self.length_spin.setValue(4)
-        self.base_spin.setValue(3)
+        self.length_spin.setValue(1)
+        self.base_spin.setValue(27)
         self.alphabet_edit.setText(FIXED_INPUT_ALPHABET)
         self.private_edit.clear()
         self.modulus_edit.clear()

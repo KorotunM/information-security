@@ -63,8 +63,8 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         self.length_spin.setRange(4, 32)
         self.length_spin.setValue(10)
         self.base_spin = QSpinBox()
-        self.base_spin.setRange(2, 10)
-        self.base_spin.setValue(4)
+        self.base_spin.setRange(27, 27)
+        self.base_spin.setValue(27)
 
         self.alphabet_edit = QLineEdit(FIXED_INPUT_ALPHABET)
         self.alphabet_edit.setReadOnly(True)
@@ -83,7 +83,7 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         self.numeric_view = create_multiline_output(read_only=True)
 
         form.addRow("Длина рюкзака n:", self.length_spin)
-        form.addRow("Основание B:", self.base_spin)
+        form.addRow("Мощность множества Q:", self.base_spin)
         form.addRow("Алфавит:", self.alphabet_edit)
         form.addRow("Закрытый рюкзак:", self.private_edit)
         form.addRow("Модуль m:", self.modulus_edit)
@@ -177,8 +177,7 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         )
         self.ciphertext_edit.setPlainText(encoded)
         self.numeric_view.setPlainText(
-            "Символы переводятся в индексы алфавита и далее в цифры по основанию B. "
-            "Точные значения приведены в пошаговом разборе."
+            "Прямое кодирование: a→0, b→1, ..., z→25, пробел→26."
         )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
@@ -196,7 +195,7 @@ class GeneralizedAdditiveScreen(ScrollScreen):
 
     def clear_form(self) -> None:
         self.length_spin.setValue(10)
-        self.base_spin.setValue(4)
+        self.base_spin.setValue(27)
         self.alphabet_edit.setText(FIXED_INPUT_ALPHABET)
         self.private_edit.clear()
         self.modulus_edit.clear()

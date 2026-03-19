@@ -42,23 +42,23 @@ class KnapsackServiceTests(unittest.TestCase):
         self.assertEqual(restored, "code")
 
     def test_generalized_additive_roundtrip(self) -> None:
-        key_pair, _ = self.generalized_additive.generate_keys(length=10, base=4)
+        key_pair, _ = self.generalized_additive.generate_keys(length=10, base=27)
         payload, _, _ = self.generalized_additive.encrypt_text(
             "code",
             key_pair,
             alphabet=self.alphabet,
-            base=4,
+            base=27,
         )
         restored, _ = self.generalized_additive.decrypt_text(payload, key_pair, self.alphabet)
         self.assertEqual(restored, "code")
 
     def test_generalized_multiplicative_roundtrip(self) -> None:
-        key_pair, _ = self.generalized_multiplicative.generate_keys(length=4, base=3)
+        key_pair, _ = self.generalized_multiplicative.generate_keys(length=1, base=27)
         payload, _, _ = self.generalized_multiplicative.encrypt_text(
             "code",
             key_pair,
             alphabet=self.alphabet,
-            base=3,
+            base=27,
         )
         restored, _ = self.generalized_multiplicative.decrypt_text(payload, key_pair, self.alphabet)
         self.assertEqual(restored, "code")

@@ -11,6 +11,8 @@ from utils.validation import InputValidationError
 class GeneralizedMultiplicativeKnapsackService:
     """Сервис GMKP/GMKR в учебной постановке."""
 
+    COEFFICIENT_LIMIT = len(FIXED_INPUT_ALPHABET) - 1
+
     def __init__(self) -> None:
         self.base_service = MultiplicativeKnapsackService()
 
@@ -24,11 +26,13 @@ class GeneralizedMultiplicativeKnapsackService:
     ) -> tuple[MultiplicativeKnapsackKeyPair, str]:
         """Генерирует ключи обобщённого мультипликативного рюкзака."""
 
-        if base < 2:
-            raise InputValidationError("Основание кодирования должно быть не меньше 2.")
+        if base != len(FIXED_INPUT_ALPHABET):
+            raise InputValidationError(
+                f"Для учебной модели GMKP используется фиксированное множество Q мощности {len(FIXED_INPUT_ALPHABET)}."
+            )
         return self.base_service.generate_keys(
             length=length,
-            coefficient_limit=base - 1,
+            coefficient_limit=self.COEFFICIENT_LIMIT,
             private_primes=private_primes,
             modulus=modulus,
             generator=generator,
@@ -45,24 +49,18 @@ class GeneralizedMultiplicativeKnapsackService:
 
         normalized_text = validate_fixed_alphabet_text(text, "Сообщение")
         codec = AlphabetCodec(alphabet)
-        encoding = codec.encode_to_digits(normalized_text, base)
-        payload = self.base_service.encrypt_coefficients(encoding.digits, key_pair)
-        encoded = self._format_payload(
-            digit_count=len(encoding.digits),
-            symbol_count=len(encoding.indices),
-            width=encoding.width,
-            base=base,
-            values=payload.values,
-        )
+        indices = codec.text_to_indices(normalized_text)
+        payload = self.base_service.encrypt_coefficients(indices, key_pair)
+        encoded = payload.encoded
         steps = "\n".join(
             [
                 "Подготовка сообщения для GMKP:",
-                f"Алфавит содержит {len(alphabet)} символов.",
-                f"Индексы символов: {encoding.indices}",
-                f"Основание B = {base}, цифр на символ = {encoding.width}",
-                f"Цифровое представление: {encoding.digits}",
+                "Кодирование символов:",
+                "a→0, b→1, c→2, ..., z→25, пробел→26",
+                f"Множество числовых эквивалентов Q = {{0, 1, 2, ..., 25, 26}}",
+                f"Числовые эквиваленты сообщения: {indices}",
                 payload.steps,
-                self.describe_spaces(len(encoding.indices), len(alphabet), len(key_pair.public_logs)),
+                self.describe_spaces(len(indices), len(alphabet), len(key_pair.public_logs)),
             ]
         )
         payload.encoded = encoded
@@ -77,17 +75,15 @@ class GeneralizedMultiplicativeKnapsackService:
     ) -> tuple[str, str]:
         """Расшифровывает алфавитное сообщение GMKP."""
 
-        digit_count, symbol_count, width, base, inner_payload = self._parse_payload(payload)
-        digits, base_steps = self.base_service.decrypt_coefficients(inner_payload, key_pair)
-        trimmed_digits = digits[:digit_count]
+        coefficients, base_steps = self.base_service.decrypt_coefficients(payload, key_pair)
         codec = AlphabetCodec(alphabet)
-        text = codec.decode_from_digits(trimmed_digits, base, width, symbol_count)
+        text = codec.indices_to_text(coefficients)
         steps = "\n".join(
             [
                 base_steps,
-                f"Цифры после удаления дополнения: {trimmed_digits}",
+                f"Восстановленные числовые эквиваленты Q: {coefficients}",
                 f"Восстановленный текст: {text}",
-                self.describe_spaces(symbol_count, len(alphabet), len(key_pair.public_logs)),
+                self.describe_spaces(len(coefficients), len(alphabet), len(key_pair.public_logs)),
             ]
         )
         return text, steps
@@ -104,35 +100,11 @@ class GeneralizedMultiplicativeKnapsackService:
         )
 
     @staticmethod
-    def _format_payload(
-        digit_count: int,
-        symbol_count: int,
-        width: int,
-        base: int,
-        values: list[int],
-    ) -> str:
-        return f"{digit_count},{symbol_count},{width},{base}|{' '.join(str(value) for value in values)}"
-
-    @staticmethod
-    def _parse_payload(payload: str) -> tuple[int, int, int, int, str]:
-        if "|" not in payload:
-            raise InputValidationError("Шифртекст GMKP должен содержать метаданные и символ '|'.")
-        meta, values = payload.split("|", maxsplit=1)
-        parts = [item.strip() for item in meta.split(",")]
-        if len(parts) != 4:
-            raise InputValidationError("Шифртекст GMKP должен иметь формат `digits,symbols,width,base|...`.")
-        try:
-            digit_count, symbol_count, width, base = [int(item) for item in parts]
-        except ValueError as error:
-            raise InputValidationError("Метаданные GMKP должны быть целыми числами.") from error
-        return digit_count, symbol_count, width, base, f"{digit_count}|{values}"
-
-    @staticmethod
     def example_values() -> dict[str, str]:
         """Возвращает пример для GMKP."""
 
         return {
-            "length": "4",
-            "base": "3",
+            "length": "1",
+            "base": "27",
             "message": "code",
         }
