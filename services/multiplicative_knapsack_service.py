@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
-from math import prod
+from math import gcd, prod
 
 from models.crypto_models import KnapsackCipherPayload, MultiplicativeKnapsackKeyPair
-from utils.number_theory import (
-    discrete_log_table,
-    factor_with_bound,
-    first_primes,
-    next_prime,
-    primitive_root,
-)
+from utils.number_theory import choose_coprime, factor_with_bound, mod_inverse, next_prime
 from utils.text_codec import (
-    bits_to_text,
+    binary_coefficients_to_fixed_alphabet_text,
+    fixed_alphabet_text_to_binary_coefficients,
     format_length_prefixed_payload,
     split_sequence,
-    text_to_bits,
     validate_fixed_alphabet_text,
 )
 from utils.validation import InputValidationError, parse_length_prefixed_numbers
@@ -33,11 +27,11 @@ class MultiplicativeKnapsackService:
         coefficient_limit: int = 1,
         private_primes: list[int] | None = None,
         modulus: int | None = None,
-        generator: int | None = None,
+        secret_exponent: int | None = None,
     ) -> tuple[MultiplicativeKnapsackKeyPair, str]:
-        """Строит учебные ключи мультипликативного рюкзака."""
+        """Строит учебные ключи мультипликативного рюкзака в форме b_i^s ≡ w_i (mod m)."""
 
-        private_values = private_primes or first_primes(length)
+        private_values = private_primes or self._default_private_primes(length)
         self.validate_private_primes(private_values)
 
         max_product = prod(value ** coefficient_limit for value in private_values)
@@ -46,36 +40,45 @@ class MultiplicativeKnapsackService:
                 "Параметры слишком велики для учебной реализации МВКР. "
                 "Уменьшите длину рюкзака или основание кодирования."
             )
+
         chosen_modulus = modulus if modulus is not None else next_prime(max_product + 2)
         if chosen_modulus <= max_product:
             raise InputValidationError(
-                f"Модуль q должен быть больше {max_product}, чтобы произведение восстанавливалось без наложений."
+                f"Модуль m должен быть больше {max_product}, чтобы произведение восстанавливалось без наложений."
             )
 
-        chosen_generator = generator if generator is not None else primitive_root(chosen_modulus)
-        log_table = discrete_log_table(chosen_generator, chosen_modulus)
+        if any(value >= chosen_modulus for value in private_values):
+            raise InputValidationError("Все элементы закрытого рюкзака W должны быть меньше модуля m.")
 
-        public_logs: list[int] = []
-        for value in private_values:
-            if value >= chosen_modulus:
-                raise InputValidationError("Все приватные множители должны быть меньше модуля q.")
-            public_logs.append(log_table[value])
+        chosen_exponent = (
+            secret_exponent if secret_exponent is not None else choose_coprime(chosen_modulus - 1, start=3)
+        )
+        if not 1 < chosen_exponent < chosen_modulus - 1:
+            raise InputValidationError("Секретный показатель s должен удовлетворять условию 1 < s < m - 1.")
+        if gcd(chosen_exponent, chosen_modulus - 1) != 1:
+            raise InputValidationError("Показатель s должен быть взаимно простым с m - 1.")
+
+        inverse_exponent = mod_inverse(chosen_exponent, chosen_modulus - 1)
+        public_sequence = [pow(value, inverse_exponent, chosen_modulus) for value in private_values]
 
         key_pair = MultiplicativeKnapsackKeyPair(
             private_primes=private_values,
-            public_logs=public_logs,
+            public_sequence=public_sequence,
             modulus=chosen_modulus,
-            generator=chosen_generator,
+            secret_exponent=chosen_exponent,
+            inverse_exponent=inverse_exponent,
             coefficient_limit=coefficient_limit,
-            discrete_log_table=log_table,
         )
+
         lines = [
             "Генерация ключей мультипликативного рюкзака:",
-            f"1. Приватные множители p = {private_values}",
+            f"1. Закрытый рюкзак W = {private_values}",
             f"2. Ограничение коэффициентов: 0..{coefficient_limit}",
-            f"3. Выбран простой модуль q = {chosen_modulus}, причём q > {max_product}",
-            f"4. Выбран генератор g = {chosen_generator}",
-            f"5. Публичные логарифмы a_i, где g^a_i ≡ p_i (mod q): {public_logs}",
+            f"3. Выбран простой модуль m = {chosen_modulus}, причём m > {max_product}",
+            f"4. Выбран секретный показатель s = {chosen_exponent}, gcd(s, m - 1) = 1",
+            f"5. Вычислен показатель s^(-1) mod (m - 1) = {inverse_exponent}",
+            f"6. Открытый рюкзак B = [w_i^(s^(-1)) mod m] = {public_sequence}",
+            "7. Для каждого i выполняется сравнение b_i^s ≡ w_i (mod m)",
         ]
         return key_pair, "\n".join(lines)
 
@@ -87,7 +90,7 @@ class MultiplicativeKnapsackService:
         """Шифрует коэффициенты мультипликативной схемой."""
 
         self._validate_coefficients(coefficients, key_pair.coefficient_limit)
-        block_size = len(key_pair.public_logs)
+        block_size = len(key_pair.public_sequence)
         blocks, padding = split_sequence(coefficients, block_size, pad_value=0)
         cipher_values: list[int] = []
         lines = [
@@ -97,13 +100,16 @@ class MultiplicativeKnapsackService:
         ]
 
         for block_index, block in enumerate(blocks, start=1):
-            components = [
-                digit * log_value for digit, log_value in zip(block, key_pair.public_logs, strict=True)
+            factors = [
+                pow(base, digit, key_pair.modulus)
+                for digit, base in zip(block, key_pair.public_sequence, strict=True)
             ]
-            exponent_sum = sum(components) % (key_pair.modulus - 1)
-            cipher_values.append(exponent_sum)
+            cipher_value = 1
+            for factor in factors:
+                cipher_value = (cipher_value * factor) % key_pair.modulus
+            cipher_values.append(cipher_value)
             lines.append(
-                f"Блок {block_index}: {block} -> k = Σ(x_i * a_i) mod (q - 1) = {' + '.join(map(str, components))} mod {key_pair.modulus - 1} = {exponent_sum}"
+                f"Блок {block_index}: {block} -> c = ∏ b_i^x_i mod m = {' * '.join(map(str, factors))} mod {key_pair.modulus} = {cipher_value}"
             )
 
         encoded = format_length_prefixed_payload(len(coefficients), cipher_values)
@@ -126,19 +132,19 @@ class MultiplicativeKnapsackService:
         coefficients: list[int] = []
         lines = [
             "Расшифрование мультипликативного рюкзака:",
-            f"Используем g = {key_pair.generator}, q = {key_pair.modulus}",
+            f"Используем секретный показатель s = {key_pair.secret_exponent}",
         ]
 
         for block_index, cipher_value in enumerate(parsed.values, start=1):
-            product_value = pow(key_pair.generator, cipher_value, key_pair.modulus)
+            intermediate = pow(cipher_value, key_pair.secret_exponent, key_pair.modulus)
             restored = factor_with_bound(
-                product_value,
+                intermediate,
                 key_pair.private_primes,
                 key_pair.coefficient_limit,
             )
             coefficients.extend(restored)
             lines.append(
-                f"Блок {block_index}: g^k mod q = {key_pair.generator}^{cipher_value} mod {key_pair.modulus} = {product_value}, коэффициенты = {restored}"
+                f"Блок {block_index}: u = c^s mod m = {cipher_value}^{key_pair.secret_exponent} mod {key_pair.modulus} = {intermediate}, коэффициенты = {restored}"
             )
 
         trimmed = coefficients[: parsed.length]
@@ -153,14 +159,18 @@ class MultiplicativeKnapsackService:
         """Шифрует текст фиксированного учебного алфавита."""
 
         normalized_message = validate_fixed_alphabet_text(message, "Сообщение")
-        bits = text_to_bits(normalized_message)
-
-        coefficients = [int(bit) for bit in bits]
+        indices, coefficients, width = fixed_alphabet_text_to_binary_coefficients(
+            normalized_message,
+            "Сообщение",
+        )
+        bits = "".join(str(bit) for bit in coefficients)
         payload = self.encrypt_coefficients(coefficients, key_pair)
         preface = [
             "Подготовка открытого сообщения:",
-            "Режим: текст из строчных английских букв и пробела",
+            "Сообщение кодируется по схеме a→0, b→1, ..., z→25, пробел→26.",
             f"Сообщение: {normalized_message}",
+            f"Числовые эквиваленты Q: {indices}",
+            f"Фиксированная двоичная ширина: {width}",
             f"Битовая последовательность: {bits}",
         ]
         return payload, "\n".join(preface + [payload.steps])
@@ -174,10 +184,12 @@ class MultiplicativeKnapsackService:
 
         coefficients, steps = self.decrypt_coefficients(payload, key_pair)
         bits = "".join(str(bit) for bit in coefficients)
-        restored = bits_to_text(bits)
+        restored, indices, width = binary_coefficients_to_fixed_alphabet_text(coefficients)
         validate_fixed_alphabet_text(restored, "Расшифрованное сообщение")
         lines = [
             steps,
+            f"Восстановленные числовые эквиваленты Q: {indices}",
+            f"Фиксированная двоичная ширина: {width}",
             f"Восстановленная битовая строка: {bits}",
             f"Восстановленное сообщение: {restored}",
         ]
@@ -189,14 +201,14 @@ class MultiplicativeKnapsackService:
         if len(values) < 1:
             raise InputValidationError("Нужен хотя бы один приватный множитель.")
         if any(value <= 1 for value in values):
-            raise InputValidationError("Все приватные множители должны быть больше 1.")
+            raise InputValidationError("Все элементы закрытого рюкзака W должны быть больше 1.")
         if len(set(values)) != len(values):
-            raise InputValidationError("Приватные множители должны быть попарно различными.")
+            raise InputValidationError("Элементы закрытого рюкзака W должны быть попарно различными.")
         for value in values:
             for divisor in range(2, int(value**0.5) + 1):
                 if value % divisor == 0:
                     raise InputValidationError(
-                        "Для учебной мультипликативной схемы используйте простые приватные множители."
+                        "Для учебной мультипликативной схемы используйте простые элементы закрытого рюкзака."
                     )
 
     def _validate_coefficients(self, coefficients: list[int], coefficient_limit: int) -> None:
@@ -205,6 +217,23 @@ class MultiplicativeKnapsackService:
                 raise InputValidationError(
                     f"Коэффициенты должны лежать в диапазоне 0..{coefficient_limit}."
                 )
+
+    @staticmethod
+    def _default_private_primes(count: int) -> list[int]:
+        """Возвращает первые `count` простых чисел."""
+
+        if count < 1:
+            raise InputValidationError("Количество элементов рюкзака должно быть положительным.")
+        result: list[int] = []
+        candidate = 2
+        while len(result) < count:
+            for divisor in range(2, int(candidate**0.5) + 1):
+                if candidate % divisor == 0:
+                    break
+            else:
+                result.append(candidate)
+            candidate += 1
+        return result
 
     @staticmethod
     def example_values() -> dict[str, str]:

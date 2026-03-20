@@ -121,6 +121,51 @@ def validate_fixed_alphabet_text(text: str, field_name: str = "Сообщени�
     return normalized
 
 
+def fixed_alphabet_indices(text: str, field_name: str = "Сообщение") -> list[int]:
+    """Преобразует текст фиксированного учебного алфавита в числовые эквиваленты Q."""
+
+    normalized = validate_fixed_alphabet_text(text, field_name)
+    codec = AlphabetCodec(FIXED_INPUT_ALPHABET)
+    return codec.text_to_indices(normalized)
+
+
+def fixed_alphabet_width() -> int:
+    """Возвращает минимальную двоичную ширину для множества Q фиксированного алфавита."""
+
+    return max(1, (len(FIXED_INPUT_ALPHABET) - 1).bit_length())
+
+
+def fixed_alphabet_text_to_binary_coefficients(
+    text: str,
+    field_name: str = "Сообщение",
+) -> tuple[list[int], list[int], int]:
+    """Кодирует текст как Q={0..26}, затем переводит каждый символ в двоичное слово фиксированной длины."""
+
+    indices = fixed_alphabet_indices(text, field_name)
+    width = fixed_alphabet_width()
+    bits = [bit for index in indices for bit in int_to_base_digits(index, 2, width)]
+    return indices, bits, width
+
+
+def binary_coefficients_to_fixed_alphabet_text(coefficients: list[int]) -> tuple[str, list[int], int]:
+    """Восстанавливает текст фиксированного алфавита из двоичных коэффициентов фиксированной длины."""
+
+    width = fixed_alphabet_width()
+    if len(coefficients) % width != 0:
+        raise InputValidationError(
+            "Длина двоичной последовательности должна делиться на 5, чтобы восстановить символы множества Q."
+        )
+    if any(bit not in (0, 1) for bit in coefficients):
+        raise InputValidationError("Классический рюкзак допускает только двоичные коэффициенты 0 и 1.")
+
+    codec = AlphabetCodec(FIXED_INPUT_ALPHABET)
+    indices = [
+        base_digits_to_int(coefficients[start : start + width], 2)
+        for start in range(0, len(coefficients), width)
+    ]
+    return codec.indices_to_text(indices), indices, width
+
+
 def int_to_base_digits(number: int, base: int, width: int) -> list[int]:
     """Преобразует число в список цифр фиксированной длины."""
 

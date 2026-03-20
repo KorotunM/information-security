@@ -66,8 +66,8 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
         self.private_edit.setPlaceholderText("Например: 2, 3, 5, 7, 11, 13")
         self.modulus_edit = QLineEdit()
         self.modulus_edit.setPlaceholderText("Если пусто, подберётся автоматически")
-        self.generator_edit = QLineEdit()
-        self.generator_edit.setPlaceholderText("Если пусто, будет найден первообразный корень")
+        self.secret_exponent_edit = QLineEdit()
+        self.secret_exponent_edit.setPlaceholderText("Если пусто, подберётся автоматически")
 
         self.message_edit = create_multiline_output(read_only=False)
         self.message_edit.setPlaceholderText("Только строчные английские буквы и пробел")
@@ -77,8 +77,8 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
 
         form.addRow("Число множителей n:", self.length_spin)
         form.addRow("Приватные множители:", self.private_edit)
-        form.addRow("Модуль q:", self.modulus_edit)
-        form.addRow("Генератор g:", self.generator_edit)
+        form.addRow("Модуль m:", self.modulus_edit)
+        form.addRow("Секретный показатель s:", self.secret_exponent_edit)
         form.addRow("Сообщение:", self.message_edit)
         form.addRow("Криптограмма:", self.ciphertext_edit)
         form.addRow("Результат дешифрования:", self.decrypted_edit)
@@ -91,10 +91,10 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
 
         self.summary_table = KeyValueTable()
         self.summary_table.set_mapping(
-            {"q": "-", "g": "-", "Размер блока": "-", "Диапазон коэффициентов": "0..1"}
+            {"m": "-", "s": "-", "s^(-1) mod (m - 1)": "-", "Размер блока": "-", "Диапазон коэффициентов": "0..1"}
         )
-        self.private_table = SequenceTable("p")
-        self.public_table = SequenceTable("a")
+        self.private_table = SequenceTable("W")
+        self.public_table = SequenceTable("B")
         output_layout.addWidget(self.summary_table)
         output_layout.addWidget(self.private_table)
         output_layout.addWidget(self.public_table)
@@ -138,19 +138,23 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
             else None
         )
         length = len(private_values) if private_values else self.length_spin.value()
-        modulus = parse_int(self.modulus_edit.text(), "Модуль q", minimum=3) if self.modulus_edit.text().strip() else None
-        generator = parse_int(self.generator_edit.text(), "Генератор g", minimum=2) if self.generator_edit.text().strip() else None
+        modulus = parse_int(self.modulus_edit.text(), "Модуль m", minimum=3) if self.modulus_edit.text().strip() else None
+        secret_exponent = (
+            parse_int(self.secret_exponent_edit.text(), "Секретный показатель s", minimum=2)
+            if self.secret_exponent_edit.text().strip()
+            else None
+        )
 
         self.current_key_pair, steps = self.service.generate_keys(
             length=length,
             private_primes=private_values,
             modulus=modulus,
-            generator=generator,
+            secret_exponent=secret_exponent,
         )
         self.length_spin.setValue(len(self.current_key_pair.private_primes))
         self.private_edit.setText(", ".join(map(str, self.current_key_pair.private_primes)))
         self.modulus_edit.setText(str(self.current_key_pair.modulus))
-        self.generator_edit.setText(str(self.current_key_pair.generator))
+        self.secret_exponent_edit.setText(str(self.current_key_pair.secret_exponent))
         self._update_key_views(self.current_key_pair)
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
@@ -163,8 +167,8 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
         )
         self.ciphertext_edit.setPlainText(payload.encoded)
         self.numeric_view.setPlainText(
-            "Сообщение переводится в битовую строку из фиксированного алфавита "
-            "`abcdefghijklmnopqrstuvwxyz `."
+            "Кодирование: a→0, b→1, ..., z→25, пробел→26; затем каждый код "
+            "переводится в 5-битное двоичное слово."
         )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
@@ -183,13 +187,13 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
         self.length_spin.setValue(6)
         self.private_edit.clear()
         self.modulus_edit.clear()
-        self.generator_edit.clear()
+        self.secret_exponent_edit.clear()
         self.message_edit.clear()
         self.ciphertext_edit.clear()
         self.decrypted_edit.clear()
         self.numeric_view.clear()
         self.summary_table.set_mapping(
-            {"q": "-", "g": "-", "Размер блока": "-", "Диапазон коэффициентов": "0..1"}
+            {"m": "-", "s": "-", "s^(-1) mod (m - 1)": "-", "Размер блока": "-", "Диапазон коэффициентов": "0..1"}
         )
         self.private_table.set_sequence([])
         self.public_table.set_sequence([])
@@ -210,14 +214,15 @@ class MultiplicativeKnapsackScreen(ScrollScreen):
     def _update_key_views(self, key_pair: MultiplicativeKnapsackKeyPair) -> None:
         self.summary_table.set_mapping(
             {
-                "q": key_pair.modulus,
-                "g": key_pair.generator,
-                "Размер блока": len(key_pair.public_logs),
+                "m": key_pair.modulus,
+                "s": key_pair.secret_exponent,
+                "s^(-1) mod (m - 1)": key_pair.inverse_exponent,
+                "Размер блока": len(key_pair.public_sequence),
                 "Диапазон коэффициентов": "0..1",
             }
         )
         self.private_table.set_sequence(key_pair.private_primes)
-        self.public_table.set_sequence(key_pair.public_logs)
+        self.public_table.set_sequence(key_pair.public_sequence)
 
     def _require_key_pair(self) -> MultiplicativeKnapsackKeyPair:
         if self.current_key_pair is None:

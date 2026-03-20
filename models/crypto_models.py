@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(slots=True)
@@ -45,11 +45,11 @@ class MultiplicativeKnapsackKeyPair:
     """Пара ключей для мультипликативного рюкзака."""
 
     private_primes: list[int]
-    public_logs: list[int]
+    public_sequence: list[int]
     modulus: int
-    generator: int
+    secret_exponent: int
+    inverse_exponent: int
     coefficient_limit: int = 1
-    discrete_log_table: dict[int, int] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -97,4 +97,3 @@ class HammingCorrectionResult:
     corrected_word: str
     decoded_bits: str
     steps: str = ""
-

@@ -163,8 +163,8 @@ class AdditiveKnapsackScreen(ScrollScreen):
         )
         self.ciphertext_edit.setPlainText(payload.encoded)
         self.numeric_view.setPlainText(
-            "Сообщение переводится в битовую строку из фиксированного алфавита "
-            "`abcdefghijklmnopqrstuvwxyz `."
+            "Кодирование: a→0, b→1, ..., z→25, пробел→26; затем каждый код "
+            "переводится в 5-битное двоичное слово."
         )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)

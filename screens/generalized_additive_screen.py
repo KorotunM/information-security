@@ -61,10 +61,10 @@ class GeneralizedAdditiveScreen(ScrollScreen):
 
         self.length_spin = QSpinBox()
         self.length_spin.setRange(4, 32)
-        self.length_spin.setValue(10)
+        self.length_spin.setValue(4)
         self.base_spin = QSpinBox()
-        self.base_spin.setRange(27, 27)
-        self.base_spin.setValue(27)
+        self.base_spin.setRange(2, 10)
+        self.base_spin.setValue(3)
 
         self.alphabet_edit = QLineEdit(FIXED_INPUT_ALPHABET)
         self.alphabet_edit.setReadOnly(True)
@@ -83,7 +83,7 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         self.numeric_view = create_multiline_output(read_only=True)
 
         form.addRow("Длина рюкзака n:", self.length_spin)
-        form.addRow("Мощность множества Q:", self.base_spin)
+        form.addRow("Параметр p:", self.base_spin)
         form.addRow("Алфавит:", self.alphabet_edit)
         form.addRow("Закрытый рюкзак:", self.private_edit)
         form.addRow("Модуль m:", self.modulus_edit)
@@ -100,10 +100,10 @@ class GeneralizedAdditiveScreen(ScrollScreen):
 
         self.summary_table = KeyValueTable()
         self.summary_table.set_mapping(
-            {"B": "-", "m": "-", "a": "-", "a^(-1) mod m": "-", "Размер блока": "-"}
+            {"p": "-", "m": "-", "a": "-", "a^(-1) mod m": "-", "Размер блока n": "-"}
         )
-        self.private_table = SequenceTable("w")
-        self.public_table = SequenceTable("b")
+        self.private_table = SequenceTable("W")
+        self.public_table = SequenceTable("B")
         output_layout.addWidget(self.summary_table)
         output_layout.addWidget(self.private_table)
         output_layout.addWidget(self.public_table)
@@ -177,7 +177,8 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         )
         self.ciphertext_edit.setPlainText(encoded)
         self.numeric_view.setPlainText(
-            "Прямое кодирование: a→0, b→1, ..., z→25, пробел→26."
+            "Кодирование: a→0, b→1, ..., z→25, пробел→26; затем каждый символ переводится "
+            "в p-ичный блок длины n."
         )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
@@ -188,14 +189,15 @@ class GeneralizedAdditiveScreen(ScrollScreen):
             self.ciphertext_edit.toPlainText(),
             key_pair,
             alphabet=self.alphabet_edit.text(),
+            base=self.base_spin.value(),
         )
         self.decrypted_edit.setPlainText(text)
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
 
     def clear_form(self) -> None:
-        self.length_spin.setValue(10)
-        self.base_spin.setValue(27)
+        self.length_spin.setValue(4)
+        self.base_spin.setValue(3)
         self.alphabet_edit.setText(FIXED_INPUT_ALPHABET)
         self.private_edit.clear()
         self.modulus_edit.clear()
@@ -205,7 +207,7 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         self.decrypted_edit.clear()
         self.numeric_view.clear()
         self.summary_table.set_mapping(
-            {"B": "-", "m": "-", "a": "-", "a^(-1) mod m": "-", "Размер блока": "-"}
+            {"p": "-", "m": "-", "a": "-", "a^(-1) mod m": "-", "Размер блока n": "-"}
         )
         self.private_table.set_sequence([])
         self.public_table.set_sequence([])
@@ -217,6 +219,9 @@ class GeneralizedAdditiveScreen(ScrollScreen):
         values = self.service.example_values()
         self.length_spin.setValue(int(values["length"]))
         self.base_spin.setValue(int(values["base"]))
+        self.private_edit.setText(values["private_sequence"])
+        self.modulus_edit.setText(values["modulus"])
+        self.multiplier_edit.setText(values["multiplier"])
         self.message_edit.setPlainText(values["message"])
         self.generate_keys()
 
@@ -226,11 +231,11 @@ class GeneralizedAdditiveScreen(ScrollScreen):
     def _update_key_views(self, key_pair: AdditiveKnapsackKeyPair) -> None:
         self.summary_table.set_mapping(
             {
-                "B": self.base_spin.value(),
+                "p": self.base_spin.value(),
                 "m": key_pair.modulus,
                 "a": key_pair.multiplier,
                 "a^(-1) mod m": key_pair.inverse_multiplier,
-                "Размер блока": len(key_pair.public_sequence),
+                "Размер блока n": len(key_pair.public_sequence),
             }
         )
         self.private_table.set_sequence(key_pair.private_sequence)

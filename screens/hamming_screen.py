@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLineEdit,
-    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -46,6 +45,7 @@ class HammingScreen(ScrollScreen):
         )
         self.service = service
         self.on_back = on_back
+        self.current_codeword = ""
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -53,32 +53,37 @@ class HammingScreen(ScrollScreen):
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(12)
 
-        input_panel = create_section("Параметры передачи")
+        input_panel = create_section("Кодирование и исправление ошибки")
         form = QFormLayout(input_panel)
         form.setSpacing(10)
 
         self.message_edit = QLineEdit()
-        self.message_edit.setPlaceholderText("Например: 10110011")
+        self.message_edit.setPlaceholderText("Введите 4 бита, например: 1011")
 
-        self.block_spin = QSpinBox()
-        self.block_spin.setRange(1, 1)
-        self.position_spin = QSpinBox()
-        self.position_spin.setRange(1, 7)
-        self.position_spin.setValue(3)
-
-        self.encoded_edit = create_multiline_output(read_only=True)
-        self.corrupted_edit = create_multiline_output(read_only=True)
+        self.encoded_edit = QLineEdit()
+        self.encoded_edit.setReadOnly(True)
+        self.corrupted_edit = QLineEdit()
+        self.corrupted_edit.setPlaceholderText("После построения кода измените один бит вручную")
+        self.s1_edit = QLineEdit()
+        self.s1_edit.setReadOnly(True)
+        self.s2_edit = QLineEdit()
+        self.s2_edit.setReadOnly(True)
+        self.s3_edit = QLineEdit()
+        self.s3_edit.setReadOnly(True)
         self.syndrome_edit = QLineEdit()
         self.syndrome_edit.setReadOnly(True)
-        self.corrected_edit = create_multiline_output(read_only=True)
-        self.decoded_edit = create_multiline_output(read_only=True)
+        self.corrected_edit = QLineEdit()
+        self.corrected_edit.setReadOnly(True)
+        self.decoded_edit = QLineEdit()
+        self.decoded_edit.setReadOnly(True)
 
         form.addRow("Информационное сообщение:", self.message_edit)
-        form.addRow("Номер блока:", self.block_spin)
-        form.addRow("Позиция ошибки (1..7):", self.position_spin)
         form.addRow("Кодовое слово:", self.encoded_edit)
         form.addRow("Искажённое слово:", self.corrupted_edit)
-        form.addRow("Синдром:", self.syndrome_edit)
+        form.addRow("Синдром s1:", self.s1_edit)
+        form.addRow("Синдром s2:", self.s2_edit)
+        form.addRow("Синдром s3:", self.s3_edit)
+        form.addRow("Синдром (s3s2s1):", self.syndrome_edit)
         form.addRow("Исправленное слово:", self.corrected_edit)
         form.addRow("Декодированное сообщение:", self.decoded_edit)
 
@@ -111,10 +116,8 @@ class HammingScreen(ScrollScreen):
 
         buttons = [
             ("Построить код", self.build_code),
-            ("Закодировать", self.encode_message),
             ("Внести ошибку", self.introduce_error),
-            ("Вычислить синдром", self.compute_syndrome),
-            ("Исправить", self.correct_payload),
+            ("Исправить", self.correct_word),
             ("Очистить", self.clear_form),
             ("Показать шаги", self.show_steps),
             ("Пример", self.load_example),
@@ -136,72 +139,81 @@ class HammingScreen(ScrollScreen):
 
     def build_code(self) -> None:
         bits = validate_binary_string(self.message_edit.text(), "Информационное сообщение")
-        first_block = (bits + "0000")[:4]
-        codeword = self.service.encode_block(first_block)
-        parity_count = self.service.parity_count_for_data(4)
+        if len(bits) != 4:
+            raise InputValidationError("Для Hamming [7,4] нужно ввести ровно 4 информационных бита.")
+
+        codeword = self.service.encode_block(bits)
+        self.current_codeword = codeword
+        self.encoded_edit.setText(codeword)
+        self.corrupted_edit.setText(codeword)
+        self.corrected_edit.clear()
+        self.decoded_edit.clear()
+        self._set_syndrome_fields("000")
+        self._update_visual_table(codeword)
+
         steps = "\n".join(
             [
                 "Построение Hamming [7,4]:",
-                f"Для 4 информационных бит требуется r = {parity_count}, так как 2^r >= m + r + 1.",
-                "Проверочные биты занимают позиции 1, 2 и 4.",
-                f"Первый демонстрационный блок: {first_block} -> {codeword}",
+                f"Информационные биты: {bits}",
+                "Проверочные биты размещаются в позициях 1, 2 и 4.",
+                f"Полученное кодовое слово: {codeword}",
+                "Теперь можно изменить один бит в поле «Искажённое слово» и нажать «Внести ошибку».",
             ]
         )
-        self._update_visual_table(codeword)
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
-
-    def encode_message(self) -> None:
-        result = self.service.encode_message(self.message_edit.text())
-        self.encoded_edit.setPlainText(result.encoded)
-        self.corrupted_edit.clear()
-        self.corrected_edit.clear()
-        self.decoded_edit.clear()
-        self.syndrome_edit.clear()
-        self.block_spin.setRange(1, len(result.codewords))
-        self._update_visual_table(result.codewords[0])
-        self.steps_output.setPlainText(result.steps)
-        self.set_steps(result.steps)
 
     def introduce_error(self) -> None:
-        payload = self._active_payload(prefer_corrupted=False)
-        corrupted, steps = self.service.introduce_error(
-            payload,
-            block_index=self.block_spin.value(),
-            position=self.position_spin.value(),
-        )
-        self.corrupted_edit.setPlainText(corrupted)
-        _, words = self.service.parse_payload(corrupted)
-        self._update_visual_table(words[self.block_spin.value() - 1])
-        self.steps_output.setPlainText(steps)
-        self.set_steps(steps)
+        if not self.current_codeword:
+            raise InputValidationError("Сначала постройте кодовое слово.")
 
-    def compute_syndrome(self) -> None:
-        payload = self._active_payload()
-        _, words = self.service.parse_payload(payload)
-        word = words[self.block_spin.value() - 1]
-        syndrome, position = self.service.analyze_word(word)
-        self.syndrome_edit.setText(f"{syndrome} (позиция {position})")
+        corrupted = validate_binary_string(self.corrupted_edit.text(), "Искажённое слово")
+        if len(corrupted) != 7:
+            raise InputValidationError("Искажённое слово должно состоять ровно из 7 бит.")
+
+        syndrome, position = self.service.analyze_word(corrupted)
+        self._set_syndrome_fields(syndrome)
+        self._update_visual_table(corrupted)
+
         steps = "\n".join(
             [
-                "Вычисление синдрома:",
-                f"Выбранный блок: {word}",
-                f"Синдром = {syndrome}",
-                f"Позиция ошибки = {position if position else 'ошибки нет'}",
+                "Анализ искажённого слова:",
+                f"Исходное кодовое слово: {self.current_codeword}",
+                f"Искажённое слово: {corrupted}",
+                f"s1 = {syndrome[2]}",
+                f"s2 = {syndrome[1]}",
+                f"s3 = {syndrome[0]}",
+                f"Синдром (s3s2s1) = {syndrome}",
+                f"Позиция ошибки: {position if position else 'ошибки нет'}",
             ]
         )
-        self._update_visual_table(word)
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
 
-    def correct_payload(self) -> None:
-        payload = self._active_payload()
-        corrected, steps = self.service.decode_payload(payload)
-        decoded_bits = self.service.decode_to_information_bits(corrected)
-        self.corrected_edit.setPlainText(corrected)
-        self.decoded_edit.setPlainText(decoded_bits)
-        _, words = self.service.parse_payload(corrected)
-        self._update_visual_table(words[self.block_spin.value() - 1])
+    def correct_word(self) -> None:
+        corrupted = validate_binary_string(self.corrupted_edit.text(), "Искажённое слово")
+        if len(corrupted) != 7:
+            raise InputValidationError("Искажённое слово должно состоять ровно из 7 бит.")
+
+        result = self.service.correct_word(corrupted)
+        self.corrected_edit.setText(result.corrected_word)
+        self.decoded_edit.setText(result.decoded_bits)
+        self._set_syndrome_fields(result.syndrome)
+        self._update_visual_table(result.corrected_word)
+
+        steps = "\n".join(
+            [
+                "Исправление по синдрому:",
+                f"Принятое слово: {result.received_word}",
+                f"s1 = {result.syndrome[2]}",
+                f"s2 = {result.syndrome[1]}",
+                f"s3 = {result.syndrome[0]}",
+                f"Синдром (s3s2s1) = {result.syndrome}",
+                f"Позиция ошибки: {result.error_position if result.error_position else 'ошибки нет'}",
+                f"Исправленное слово: {result.corrected_word}",
+                f"Декодированное сообщение: {result.decoded_bits}",
+            ]
+        )
         self.steps_output.setPlainText(steps)
         self.set_steps(steps)
 
@@ -209,30 +221,31 @@ class HammingScreen(ScrollScreen):
         self.message_edit.clear()
         self.encoded_edit.clear()
         self.corrupted_edit.clear()
+        self.s1_edit.clear()
+        self.s2_edit.clear()
+        self.s3_edit.clear()
         self.syndrome_edit.clear()
         self.corrected_edit.clear()
         self.decoded_edit.clear()
-        self.block_spin.setRange(1, 1)
-        self.position_spin.setValue(3)
         self.visual_table.clearContents()
         self.steps_output.clear()
+        self.current_codeword = ""
         self.set_steps("")
 
     def load_example(self) -> None:
-        self.message_edit.setText(self.service.example_bits())
-        self.encode_message()
+        self.message_edit.setText("1011")
+        self.build_code()
+        self.corrupted_edit.setText("0100011")
+        self.introduce_error()
 
     def show_steps(self) -> None:
         self.show_steps_dialog("Шаги Hamming [7,4]")
 
-    def _active_payload(self, prefer_corrupted: bool = True) -> str:
-        if prefer_corrupted and self.corrupted_edit.toPlainText().strip():
-            return self.corrupted_edit.toPlainText()
-        if self.encoded_edit.toPlainText().strip():
-            return self.encoded_edit.toPlainText()
-        if self.corrupted_edit.toPlainText().strip():
-            return self.corrupted_edit.toPlainText()
-        raise InputValidationError("Сначала постройте и закодируйте сообщение.")
+    def _set_syndrome_fields(self, syndrome: str) -> None:
+        self.s1_edit.setText(syndrome[2])
+        self.s2_edit.setText(syndrome[1])
+        self.s3_edit.setText(syndrome[0])
+        self.syndrome_edit.setText(syndrome)
 
     def _update_visual_table(self, word: str) -> None:
         positions = [str(index) for index in range(1, 8)]

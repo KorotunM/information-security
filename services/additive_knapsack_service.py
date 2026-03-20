@@ -7,11 +7,11 @@ from math import gcd
 from models.crypto_models import AdditiveKnapsackKeyPair, KnapsackCipherPayload
 from utils.number_theory import generalized_superincreasing_sequence, mod_inverse, next_prime
 from utils.text_codec import (
-    bits_to_text,
+    binary_coefficients_to_fixed_alphabet_text,
+    fixed_alphabet_text_to_binary_coefficients,
     validate_fixed_alphabet_text,
     format_length_prefixed_payload,
     split_sequence,
-    text_to_bits,
 )
 from utils.validation import InputValidationError, parse_length_prefixed_numbers
 
@@ -143,14 +143,18 @@ class AdditiveKnapsackService:
         """Шифрует текст фиксированного учебного алфавита."""
 
         normalized_message = validate_fixed_alphabet_text(message, "Сообщение")
-        bits = text_to_bits(normalized_message)
-
-        coefficients = [int(bit) for bit in bits]
+        indices, coefficients, width = fixed_alphabet_text_to_binary_coefficients(
+            normalized_message,
+            "Сообщение",
+        )
+        bits = "".join(str(bit) for bit in coefficients)
         payload = self.encrypt_coefficients(coefficients, key_pair)
         preface = [
             "Подготовка открытого сообщения:",
-            "Режим: текст из строчных английских букв и пробела",
+            "Сообщение кодируется по схеме a→0, b→1, ..., z→25, пробел→26.",
             f"Сообщение: {normalized_message}",
+            f"Числовые эквиваленты Q: {indices}",
+            f"Фиксированная двоичная ширина: {width}",
             f"Битовая последовательность: {bits}",
         ]
         return payload, "\n".join(preface + [payload.steps])
@@ -164,10 +168,12 @@ class AdditiveKnapsackService:
 
         coefficients, steps = self.decrypt_coefficients(payload, key_pair)
         bits = "".join(str(bit) for bit in coefficients)
-        restored = bits_to_text(bits)
+        restored, indices, width = binary_coefficients_to_fixed_alphabet_text(coefficients)
         validate_fixed_alphabet_text(restored, "Расшифрованное сообщение")
         result_lines = [
             steps,
+            f"Восстановленные числовые эквиваленты Q: {indices}",
+            f"Фиксированная двоичная ширина: {width}",
             f"Восстановленная битовая строка: {bits}",
             f"Восстановленное сообщение: {restored}",
         ]
